@@ -5,7 +5,6 @@
 *.slo
 *.lo
 *.o
-*.obj
 
 # Precompiled Headers
 *.gch
@@ -30,3 +29,29 @@
 *.exe
 *.out
 *.app
+
+#Files
+out/
+.vs/
+.vscode/
+build/
+bin/
+*.user
+*.json
+
+#VS
+.sln
+.vcxproj
+.vs
+.vscode
+
+#CMake
+CMakeCache.txt
+CMakeFiles
+CMakeScripts
+Testing
+Makefile
+cmake_install.cmake
+install_manifest.txt
+CTestTestfile.cmake
+_deps

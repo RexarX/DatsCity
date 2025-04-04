@@ -9,7 +9,6 @@ void Renderer::Init(std::string_view window_name, int width, int height) {
   InitWindow(width, height, window_name.data());
   SetWindowState(FLAG_WINDOW_RESIZABLE);
   SetWindowState(FLAG_VSYNC_HINT);
-  ;
 
   camera_.position = Vector3{50.0f, 100.0f, 0.0f};
   camera_.target = Vector3{0.0f, 0.0f, 0.0f};

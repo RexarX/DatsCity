@@ -53,18 +53,6 @@ function(find_dependency_with_fallback name out_var_lib out_var_inc)
             endif()
             return()
         endif()
-    elseif("${name}" STREQUAL "glm")
-        find_package(glm CONFIG QUIET)
-        if(glm_FOUND)
-            set(${out_var_lib} glm::glm PARENT_SCOPE)
-            if(TARGET glm::glm)
-                get_target_property(include_dirs glm::glm INTERFACE_INCLUDE_DIRECTORIES)
-                if(include_dirs)
-                    set(${out_var_inc} "${include_dirs}" PARENT_SCOPE)
-                endif()
-            endif()
-            return()
-        endif()
     elseif("${name}" STREQUAL "raylib")
         find_package(raylib CONFIG QUIET)
         if(raylib_FOUND)
@@ -112,7 +100,6 @@ set(DATSCITY_DEPENDENCIES
     argparse 
     glaze
     cpr
-    glm
     raylib
 )
 

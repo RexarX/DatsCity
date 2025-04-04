@@ -36,7 +36,6 @@ Solution for gamathon by DatsTeam.
 * [argparse](https://github.com/p-ranav/argparse)
 * [glaze](https://github.com/stephenberry/glaze)
 * [cpr](https://github.com/libcpr/cpr)
-* [glm](https://github.com/g-truc/glm)
 * [raylib](https://github.com/raysan5/raylib)
 
 * [oneTBB](https://github.com/uxlfoundation/oneTBB) (only for Linux)

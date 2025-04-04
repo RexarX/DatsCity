@@ -69,8 +69,6 @@ private:
   Timestep update_delta_time_;
   int server_tick_rate_ = 0;
   float server_tick_limit_sec_ = 0.0f;
-
-  double current_time_ = 0.0;
 };
 
 inline Application* CreateApplication();

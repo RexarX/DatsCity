@@ -18,8 +18,6 @@ public:
 
   void ConnectToServer(std::string_view url, std::string_view token) { server_.Connect(url, token); }
 
-  // Tower building game interface - these methods are for internal use
-  // but public so other components can use them if needed
   bool CheckAndFetchWordData();
   bool CheckAndFetchTowerData();
   bool ShuffleCurrentWords();

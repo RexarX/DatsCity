@@ -19,9 +19,9 @@ if(NOT DEFINED ARCHITECTURE)
 endif()
 
 if(WIN32)
-    set(PLATFORM "Windows")
+    set(BUILD_PLATFORM "Windows")
 elseif(UNIX)
-    set(PLATFORM "Linux")
+    set(BUILD_PLATFORM "Linux")
 endif()
 
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
@@ -43,4 +43,5 @@ endif()
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/CMake)
 include(FindDependencies)
 
+add_subdirectory(thirdparty)
 add_subdirectory(src)

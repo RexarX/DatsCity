@@ -53,18 +53,6 @@ function(find_dependency_with_fallback name out_var_lib out_var_inc)
             endif()
             return()
         endif()
-    elseif("${name}" STREQUAL "raylib")
-        find_package(raylib CONFIG QUIET)
-        if(raylib_FOUND)
-            set(${out_var_lib} raylib PARENT_SCOPE)
-            if(TARGET raylib)
-                get_target_property(include_dirs raylib INTERFACE_INCLUDE_DIRECTORIES)
-                if(include_dirs)
-                    set(${out_var_inc} "${include_dirs}" PARENT_SCOPE)
-                endif()
-            endif()
-            return()
-        endif()
     endif()
     
     # Try pkg-config as fallback for system packages
@@ -73,16 +61,6 @@ function(find_dependency_with_fallback name out_var_lib out_var_inc)
         set(${out_var_lib} PkgConfig::${name} PARENT_SCOPE)
         set(${out_var_inc} "${${name}_INCLUDE_DIRS}" PARENT_SCOPE)
         return()
-    endif()
-    
-    # Try alternative names for pkg-config
-    if("${name}" STREQUAL "raylib")
-        pkg_check_modules(raylib QUIET IMPORTED_TARGET raylib)
-        if(raylib_FOUND)
-            set(${out_var_lib} PkgConfig::raylib PARENT_SCOPE)
-            set(${out_var_inc} "${raylib_INCLUDE_DIRS}" PARENT_SCOPE)
-            return()
-        endif()
     endif()
     
     set(${out_var_lib} "" PARENT_SCOPE)
@@ -100,7 +78,6 @@ set(DATSCITY_DEPENDENCIES
     argparse 
     glaze
     cpr
-    raylib
 )
 
 # Find each dependency separately and make it available as a separate variable

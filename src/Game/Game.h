@@ -7,7 +7,7 @@
 
 struct CoordsHash {
   inline size_t operator()(const app::Coords& coords) const {
-    return std::hash<int>()(coords.x) ^ (std::hash<int>()(coords.y) << 1);
+    return std::hash<int>()(coords.x) ^ (std::hash<int>()(coords.y) << 1) ^ (std::hash<int>()(coords.z) << 2);
   }
 };
 

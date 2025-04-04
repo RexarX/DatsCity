@@ -1,8 +1,16 @@
 #include "Server.h"
 
-constexpr const char* MOVE_ENDPOINT = "player/move";
-
 namespace app {
+
+namespace {
+
+constexpr std::string_view kBuildEndpoint = "build";
+constexpr std::string_view kShuffleEndpoint = "shuffle";
+constexpr std::string_view kTowersEndpoint = "towers";
+constexpr std::string_view kWordsEndpoint = "words";
+constexpr std::string_view kRoundsEndpoint = "rounds";
+
+}  // namespace
 
 void Server::Connect(std::string_view url, std::string_view token) {
   if (url.empty()) {
@@ -15,87 +23,324 @@ void Server::Connect(std::string_view url, std::string_view token) {
     return;
   }
 
-  if (url == url_ && token == token_ && state_ == State::Connected) {
+  if (url == base_url_ && token == token_ && state_ == State::kConnected) {
     return;
   }
 
-  url_ = url;
+  base_url_ = url;
   token_ = token;
 
-  session_.SetUrl(std::format("{}/{}", url, MOVE_ENDPOINT));
+  if (base_url_.back() != '/') {
+    base_url_.push_back('/');
+  }
+
+  session_.SetUrl(base_url_);
   session_.SetHeader({{"X-Auth-Token", token_}, {"Content-Type", "application/json"}});
 
-  state_ = State::Connected;
-}
-
-void Server::Disconnect() {
-  state_ = State::Disconnected;
+  state_ = State::kConnected;
 }
 
 void Server::Update() {
-  if (state_ == State::Disconnected) {
-    ASSERT(false, "Failed to update server: server is not connected!");
+  if (state_ == State::kDisconnected) {
+    ASSERT(false, "Failed to update server: Server is not connected!");
     return;
   }
 
-  const cpr::Response response = session_.Post();
-  if (response.error) {
-    ASSERT(false, "Failed to update server: {}!", response.error.message);
-    return;
-  }
+  // If we're waiting for the next game, check if it's time to try connecting again
+  if (state_ == State::kWaitingForNextGame) {
+    const auto now = std::chrono::system_clock::now();
+    if (now >= next_game_check_time_) {
+      // Try to fetch words to see if the game has started
+      auto words_result = FetchWords();
+      if (words_result) {
+        state_ = State::kConnected;
+        game_state_.words_data = std::move(*words_result);
+        INFO("Game has started! Connected successfully.");
 
-  glz::error_ctx err = glz::read_json(game_state_, response.text);
-  if (!err) {
-    state_ = State::Connected;
-    return;
-  }
+        // Also fetch towers and rounds to complete the game state
+        auto towers_result = FetchTowers();
+        if (towers_result) {
+          game_state_.towers_data = std::move(*towers_result);
+        }
 
-  ERROR("Error while updating server: Failed to parse server response: {}!", glz::format_error(err, response.text));
+        auto rounds_result = FetchRounds();
+        if (rounds_result) {
+          game_state_.rounds_data = std::move(rounds_result->rounds);
+        }
 
-  err = glz::read_json(last_error_, response.text);
-  if (err) {
-    if (last_error_.err_code == 23) {  // No active game error
-      state_ = State::WaitingForNextGame;
-      if (!last_error_.next_rounds.empty()) {
-        const GameRound& next_game = last_error_.next_rounds[0];
-        INFO("No active game. Next game '{}' starts at {}", next_game.name, next_game.start_time);
+        return;
+      } else {
+        // Still no active game, update next check time
+        ParseNoActiveGameError(words_result.error().error);
       }
     }
     return;
   }
 
-  ASSERT(false, "Failed to update server: Failed to parse server response: {}!", glz::format_error(err, response.text));
+  // Try a GET request to words endpoint instead of POSTing to base URL
+  auto words_result = FetchWords();
+  if (words_result) {
+    state_ = State::kConnected;
+    game_state_.words_data = std::move(*words_result);
+
+    // Log the map size from the received words data
+    INFO("Connected to game. Map size: ({},{},{})", game_state_.words_data.map_size.x,
+         game_state_.words_data.map_size.y, game_state_.words_data.map_size.z);
+    return;
+  }
+
+  const std::string& error_message = words_result.error().error;
+  if (error_message.find("there is no active game") != std::string::npos || words_result.error().err_code == 23) {
+    state_ = State::kWaitingForNextGame;
+    ParseNoActiveGameError(error_message);
+  } else {
+    ERROR("Error while updating server: {}!", error_message);
+  }
 }
 
-void Server::Send(std::string_view json) {
-  if (state_ == State::Disconnected) {
-    ASSERT(false, "Failed to post to the server: server is not connected!");
-    return;
+std::expected<TowersResponse, Server::Error> Server::FetchTowers() {
+  const auto response = SendGetRequest(kTowersEndpoint);
+  if (!response) {
+    return std::unexpected(response.error());
   }
 
-  if (state_ == State::WaitingForNextGame) {
-    return;
+  TowersResponse towers;
+  const auto err = glz::read_json(towers, *response);
+  if (err) {
+    return std::unexpected(
+        Error{.error = std::format("Failed to parse towers response: {}", glz::format_error(err, *response))});
   }
 
-  if (json.empty()) {
-    ASSERT(false, "Failed to post to the server: json is empty!");
-    return;
+  // Update cached data
+  game_state_.towers_data = towers;
+
+  return towers;
+}
+
+std::expected<WordsResponse, Server::Error> Server::FetchWords() {
+  const auto response = SendGetRequest(kWordsEndpoint);
+  if (!response) {
+    return std::unexpected(response.error());
   }
 
-  INFO("Sending json: {}", json);
-  session_.SetBody(cpr::Body(json));
-  const cpr::Response response = session_.Post();
+  WordsResponse words;
+  const auto err = glz::read_json(words, *response);
+  if (err) {
+    return std::unexpected(
+        Error{.error = std::format("Failed to parse words response: {}", glz::format_error(err, *response))});
+  }
+
+  // Update cached data
+  game_state_.words_data = words;
+
+  return words;
+}
+
+std::expected<ShuffleResponse, Server::Error> Server::ShuffleWords() const {
+  if (state_ == State::kDisconnected) {
+    return std::unexpected(Error{.error = "Server is not connected"});
+  }
+
+  if (state_ == State::kWaitingForNextGame) {
+    return std::unexpected(Error{.error = "No active game"});
+  }
+
+  INFO("Shuffling words");
+
+  cpr::Session req;
+  req.SetUrl(FormatEndpointUrl(kShuffleEndpoint));
+  req.SetHeader({{"X-Auth-Token", token_}, {"Content-Type", "application/json"}});
+  req.SetBody("{}");
+
+  const cpr::Response response = req.Post();
+
   if (response.error) {
-    ASSERT(false, "Failed to post to the server: {}!", response.error.message);
-    return;
+    return std::unexpected(Error{.error = std::format("Request failed: {}", response.error.message)});
   }
+
+  if (response.status_code != 200) {
+    try {
+      ErrorResponse api_error;
+      const auto parse_err = glz::read_json(api_error, response.text);
+      if (parse_err) {
+        return std::unexpected(Error{.error = std::format("HTTP error {}: {}", response.status_code, response.text)});
+      }
+      return std::unexpected(Error{.error = std::format("Error code {}: {}", api_error.code, api_error.message)});
+
+    } catch (const std::exception& e) {
+      return std::unexpected(Error{.error = std::format("Error parsing response: {}", e.what())});
+    }
+  }
+
+  ShuffleResponse result;
+  const auto err = glz::read_json(result, response.text);
+  if (err) {
+    return std::unexpected(
+        Error{.error = std::format("Failed to parse shuffle response: {}", glz::format_error(err, response.text))});
+  }
+
+  return result;
+}
+
+std::expected<RoundsResponse, Server::Error> Server::FetchRounds() {
+  const auto response = SendGetRequest(kRoundsEndpoint);
+  if (!response) {
+    return std::unexpected(response.error());
+  }
+
+  RoundsResponse rounds;
+  const auto err = glz::read_json(rounds, *response);
+  if (err) {
+    return std::unexpected(
+        Error{.error = std::format("Failed to parse rounds response: {}", glz::format_error(err, *response))});
+  }
+
+  // Update cached data
+  game_state_.rounds_data = rounds.rounds;
+
+  return rounds;
+}
+
+std::expected<ShuffleResponse, Server::Error> Server::BuildTower(const BuildRequest& request) {
+  const auto response = SendRequest(kBuildEndpoint, request);
+  if (!response) {
+    return std::unexpected(response.error());
+  }
+
+  ShuffleResponse result;
+  const auto err = glz::read_json(result, *response);
+  if (err) {
+    return std::unexpected(
+        Error{.error = std::format("Failed to parse build response: {}", glz::format_error(err, *response))});
+  }
+
+  return result;
 }
 
 void Server::PrintGameState() {
-  INFO(
-      "Game state:\nMap size: ({}, {})\nName: {}\nPoints: {}\nTurn: {}\nTick remain ms: {}\nRevive timeout: {} seconds",
-      game_state_.map_size.x, game_state_.map_size.y, game_state_.name, game_state_.points, game_state_.turn,
-      game_state_.tick_remain_ms, game_state_.revive_timeout_sec);
+  if (game_state_.words_data.words.empty()) {
+    INFO("Game state: No words data available");
+    return;
+  }
+
+  // Count words in the current tower (if it exists)
+  int words_in_tower = 0;
+  double tower_score = 0.0;
+  if (game_state_.towers_data.tower.has_value()) {
+    words_in_tower = static_cast<int>(game_state_.towers_data.tower->words.size());
+    tower_score = game_state_.towers_data.tower->score;
+  }
+
+  // Retrieve current round status
+  std::string_view round_status = "Unknown";
+  std::string_view round_name = "None";
+  if (!game_state_.rounds_data.empty()) {
+    round_status = game_state_.rounds_data[0].status.c_str();
+    round_name = game_state_.rounds_data[0].name.c_str();
+  }
+
+  INFO(R"(
+Game State Summary
+-----------------------------------------
+Map: [%d, %d, %d] | Turn: %d | Next turn: %ds
+Words: %zu available | Shuffles left: %d
+Round: %s (%s) | Ends at: %s
+-----------------------------------------
+Towers completed: %zu | Total score: %.2f
+Current tower: %s | Words placed: %d | Score: %.2f
+-----------------------------------------)",
+       game_state_.words_data.map_size.x, game_state_.words_data.map_size.y, game_state_.words_data.map_size.z,
+       game_state_.words_data.turn, game_state_.words_data.next_turn_sec, game_state_.words_data.words.size(),
+       game_state_.words_data.shuffle_left, round_name, round_status, game_state_.words_data.round_ends_at.c_str(),
+       game_state_.towers_data.done_towers.size(), game_state_.towers_data.score,
+       game_state_.towers_data.tower.has_value() ? "Active" : "None", words_in_tower, tower_score);
+}
+
+std::expected<std::string, Server::Error> Server::SendGetRequest(std::string_view endpoint) const {
+  if (state_ == State::kDisconnected) {
+    return std::unexpected(Error{.error = "Server is not connected"});
+  }
+
+  INFO("Sending GET request to {}", endpoint);
+
+  cpr::Session req;
+  req.SetUrl(FormatEndpointUrl(endpoint));
+  req.SetHeader({{"X-Auth-Token", token_}, {"Content-Type", "application/json"}});
+
+  const cpr::Response response = req.Get();
+
+  if (response.error) {
+    return std::unexpected(Error{.error = std::format("Request failed: {}", response.error.message)});
+  }
+
+  if (response.status_code != 200) {
+    try {
+      // Try to parse as structured JSON first
+      ErrorResponse api_error;
+      const auto parse_err = glz::read_json(api_error, response.text);
+
+      if (parse_err) {
+        // If standard JSON parsing fails, try manual extraction with regex
+        const std::regex error_regex("\\\"error\\\":\\\"([^\\\"]+)\\\",\\\"errCode\\\":(\\d+)");
+        std::smatch matches;
+
+        if (std::regex_search(response.text, matches, error_regex) && matches.size() >= 3) {
+          return std::unexpected(Error{.error = matches[1].str(), .err_code = std::stoi(matches[2].str())});
+        }
+
+        // If all parsing attempts fail, return the raw error text
+        return std::unexpected(Error{.error = std::format("HTTP error {}: {}", response.status_code, response.text)});
+      }
+
+      return std::unexpected(Error{.error = api_error.message, .err_code = api_error.code});
+
+    } catch (const std::exception& e) {
+      return std::unexpected(Error{.error = std::format("Error parsing response: {}", e.what())});
+    }
+  }
+
+  return response.text;
+}
+
+void Server::ParseNoActiveGameError(const std::string& error_message) {
+  const std::regex round_regex(
+      R"(next rounds: \[([\w-]+) (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z) -- (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)\])");
+  std::smatch matches;
+
+  if (std::regex_search(error_message, matches, round_regex) && matches.size() >= 3) {
+    const std::string round_name = matches[1].str();
+    std::string start_time_str = matches[2].str();
+
+    // Convert ISO 8601 string to time_point
+    std::tm tm = {};
+    std::istringstream ss(start_time_str);
+    ss >> std::get_time(&tm, "%Y-%m-%dT%H:%M:%SZ");
+
+    const auto start_time = std::chrono::system_clock::from_time_t(std::mktime(&tm));
+    const auto now = std::chrono::system_clock::now();
+
+    if (start_time > now) {
+      const auto time_until_game = std::chrono::duration_cast<std::chrono::seconds>(start_time - now).count();
+
+      // Set next check time to 10 seconds before the game starts
+      next_game_check_time_ = start_time - std::chrono::seconds(10);
+
+      // If the game is starting in more than 10 minutes, check every minute
+      if (time_until_game > 600) {
+        next_game_check_time_ = now + std::chrono::minutes(1);
+      }
+
+      INFO("No active game. Next game '{}' starts in {} seconds (at {})", round_name, time_until_game, start_time_str);
+    } else {
+      // If start time is in the past, check again in 30 seconds
+      next_game_check_time_ = now + std::chrono::seconds(30);
+      INFO("Next game time appears to be in the past. Will check again in 30 seconds.");
+    }
+  } else {
+    // If we can't parse the time, check again in 60 seconds
+    next_game_check_time_ = std::chrono::system_clock::now() + std::chrono::seconds(60);
+    INFO("Could not parse next game time. Will check again in 60 seconds.");
+  }
 }
 
 }  // namespace app

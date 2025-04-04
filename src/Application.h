@@ -17,7 +17,19 @@ public:
   void Run();
 
   void ConnectToServer(std::string_view url, std::string_view token) { server_.Connect(url, token); }
-  void SendJsonToServer(std::string_view json) { server_.Send(json); }
+
+  // Tower building game interface - these methods are for internal use
+  // but public so other components can use them if needed
+  bool CheckAndFetchWordData();
+  bool CheckAndFetchTowerData();
+  bool ShuffleCurrentWords();
+  bool FetchGameRounds();
+  bool BuildWordTower(const BuildRequest& request);
+
+  // Game state accessors
+  inline const WordsResponse& GetCurrentWords() const noexcept { return render_game_state_.words_data; }
+  inline const TowersResponse& GetCurrentTowers() const noexcept { return render_game_state_.towers_data; }
+  inline const std::vector<Round>& GetGameRounds() const noexcept { return render_game_state_.rounds_data; }
 
   void SetFramerateLimit(int framerate_limit) noexcept {
     framerate_limit_ = framerate_limit;
@@ -43,11 +55,24 @@ private:
   void UpdateLoop();
   void RenderLoop();
 
+  void FetchInitialGameData();
+
+  inline GameState GetGameStateCopy() {
+    std::lock_guard<std::mutex> lock(server_mutex_);
+    return server_.GetGameState();
+  }
+
+  void SwapGameStates() {
+    std::lock_guard<std::mutex> lock(state_swap_mutex_);
+    render_game_state_ = update_game_state_;
+    state_needs_swap_.store(false, std::memory_order_release);
+  }
+
 private:
   static inline Application* instance_ = nullptr;
 
   std::string name_;
-  bool running_ = false;
+  std::atomic<bool> running_{true};
 
   int window_width_ = 0;
   int window_height_ = 0;
@@ -56,7 +81,13 @@ private:
   Renderer renderer_;
   Server server_;
 
-  std::mutex server_mutex_;
+  // Double buffering for game state to reduce contention
+  GameState update_game_state_;
+  GameState render_game_state_;
+  std::atomic<bool> state_needs_swap_{false};
+
+  std::mutex server_mutex_;      // For server API calls
+  std::mutex state_swap_mutex_;  // For swapping game states
 
   std::thread update_thread_;
   std::thread render_thread_;
@@ -70,7 +101,5 @@ private:
   int server_tick_rate_ = 0;
   float server_tick_limit_sec_ = 0.0f;
 };
-
-inline Application* CreateApplication();
 
 }  // namespace app

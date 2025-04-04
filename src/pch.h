@@ -1,11 +1,15 @@
 #pragma once
 
+#include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <execution>
 #include <expected>
 #include <filesystem>
 #include <format>
 #include <mutex>
+#include <optional>
+#include <regex>
 #include <source_location>
 #include <string>
 #include <string_view>

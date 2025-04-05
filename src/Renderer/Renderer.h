@@ -39,37 +39,23 @@ public:
 
 private:
   void UpdateCamera(Timestep delta_time);
-
   void DrawSkybox();
   void LoadSkybox();
   void UnloadSkybox();
-
   void DrawWordBlocks(const GameState& game_state);
   void DrawMapGrid(const Coords& map_size);
-
   void GenerateLetterTextures();
   void UnloadWordTextures();
-
   void DrawHUD(Timestep delta_time, const GameState& game_state);
-
   void DrawCubeTexture(const Texture2D& texture, const Vector3& position, float width, float height, float length,
                        Color color);
-
   void DrawText3D(std::string_view text, const Vector3& position, float font_size, float font_spacing, Color color);
-
   void DrawBillboardText(std::string_view text, const Vector3& position, float font_size, Color color);
-
-  void SaveCubemapImage(const char* right_path, const char* left_path, const char* top_path, const char* bottom_path,
-                        const char* front_path, const char* back_path, const char* output_path);
-
   static Image CreateCubemapImage(const char* right_path, const char* left_path, const char* top_path,
                                   const char* bottom_path, const char* front_path, const char* back_path);
-
-  Texture2D GetOrCreateLetterTexture(std::string_view letter);
-
-  Vector3 MeasureText3D(const Font& font, std::string_view text, float font_size, float font_spacing,
-                        float line_spacing);
-
+  Texture2D GetOrCreateLetterTexture(const std::string& letter);
+  static Vector3 MeasureText3D(const Font& font, std::string_view text, float font_size, float font_spacing,
+                               float line_spacing);
   void CreateTestLetterCubes();
 
 private:
@@ -81,15 +67,11 @@ private:
 
   bool show_grid_ = false;
 
-  std::unordered_map<std::string_view, Texture2D> letter_textures_;
+  std::unordered_map<std::string, Texture2D> letter_textures_;
   std::vector<LetterCube> word_blocks_;
   std::vector<LetterCube> test_blocks_;
   float block_size_ = 10.0f;
-  Color active_word_color_{0, 120, 255, 255};     // Blue for active tower
-  Color completed_word_color_{0, 200, 100, 255};  // Green for completed towers
-
-  // Grid visualization properties
-  Color grid_color_{100, 100, 100, 50};
+  Color universal_cube_color_{120, 120, 255, 255};
 
   Mesh skybox_mesh_;
   Model skybox_model_;

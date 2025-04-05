@@ -68,6 +68,8 @@ void Server::Update() {
           game_state_.rounds_data = std::move(rounds_result->rounds);
         }
 
+        // Print the complete game state after we've fetched all data
+        PrintGameState();
         return;
       } else {
         // Still no active game, update next check time
@@ -86,6 +88,20 @@ void Server::Update() {
     // Log the map size from the received words data
     INFO("Connected to game. Map size: ({},{},{})", game_state_.words_data.map_size.x,
          game_state_.words_data.map_size.y, game_state_.words_data.map_size.z);
+
+    // Also fetch towers and rounds data for a more complete game state
+    auto towers_result = FetchTowers();
+    if (towers_result) {
+      game_state_.towers_data = std::move(*towers_result);
+    }
+
+    auto rounds_result = FetchRounds();
+    if (rounds_result) {
+      game_state_.rounds_data = std::move(rounds_result->rounds);
+    }
+
+    PrintGameState();
+
     return;
   }
 
@@ -329,7 +345,7 @@ void Server::ParseNoActiveGameError(const std::string& error_message) {
     if (start_time <= now && now < end_time) {
       // This is the case you identified - game has started but we're not seeing it
       // Try connecting immediately and more frequently since the game should be in progress
-      next_game_check_time_ = now;  // Check immediately
+      next_game_check_time_ = now;
       INFO("Game '{}' should be in progress! Start time was {} and end time is {}. Attempting to connect immediately.",
            round_name, start_time_str, end_time_str);
     } else if (start_time > now) {

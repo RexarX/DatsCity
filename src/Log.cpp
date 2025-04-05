@@ -38,34 +38,46 @@ public:
 namespace app {
 
 void Log::Init() {
-  std::vector<spdlog::sink_ptr> log_sinks;
-
   const auto now = std::chrono::system_clock::now();
   const auto in_time_t = std::chrono::system_clock::to_time_t(now);
   std::stringstream ss;
   ss << std::put_time(std::localtime(&in_time_t), "%Y-%m-%d_%H-%M-%S");
+  std::string time = ss.str();
 
-  const std::string log_file_path = std::format("Logs/{}.log", ss.str());
+  std::filesystem::create_directories("Logs/App");
+  std::filesystem::create_directories("Logs/Server");
 
-  std::filesystem::create_directories("Logs");
+  std::string log_file_path = std::format("Logs/App/{}.log", time);
+  logger_ = CreateNamedLogger("APP", log_file_path);
+
+  log_file_path = std::format("Logs/Server/{}.log", time);
+  server_logger_ = CreateNamedLogger("SERVER", log_file_path);
+}
+
+std::shared_ptr<spdlog::logger> Log::CreateNamedLogger(std::string_view name, std::string_view log_file_path) {
+  std::vector<spdlog::sink_ptr> log_sinks;
 
   auto file_formatter = std::make_unique<spdlog::pattern_formatter>();
   file_formatter->add_flag<star_formatter_flag>('*').set_pattern("[%T] [%l] %n: %v %*");
 
-  auto formatter = std::make_unique<spdlog::pattern_formatter>();
-  formatter->add_flag<star_formatter_flag>('*').set_pattern("[%T] [%^%l%$] %n: %v %*");
+  auto console_formatter = std::make_unique<spdlog::pattern_formatter>();
+  console_formatter->add_flag<star_formatter_flag>('*').set_pattern("[%T] [%^%l%$] %n: %v %*");
 
-  log_sinks.emplace_back(std::make_shared<spdlog::sinks::basic_file_sink_mt>(log_file_path, true))
+  log_sinks.emplace_back(std::make_shared<spdlog::sinks::basic_file_sink_mt>(log_file_path.data(), true))
       ->set_formatter(std::move(file_formatter));
 
-#ifdef ENABLE_ASSERTS
-  log_sinks.emplace_back(std::make_shared<spdlog::sinks::stdout_color_sink_mt>())->set_formatter(std::move(formatter));
+#ifndef RELEASE_MODE
+  auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+  console_sink->set_formatter(std::move(console_formatter));
+  log_sinks.emplace_back(std::move(console_sink));
 #endif
 
-  logger_ = std::make_shared<spdlog::logger>("APP", log_sinks.begin(), log_sinks.end());
-  spdlog::register_logger(logger_);
-  logger_->set_level(spdlog::level::trace);
-  logger_->flush_on(spdlog::level::trace);
+  auto logger = std::make_shared<spdlog::logger>(name.data(), log_sinks.begin(), log_sinks.end());
+  spdlog::register_logger(logger);
+  logger->set_level(spdlog::level::trace);
+  logger->flush_on(spdlog::level::trace);
+
+  return logger;
 }
 
 }  // namespace app

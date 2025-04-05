@@ -44,9 +44,14 @@ public:
   }
 
   static inline std::shared_ptr<spdlog::logger>& GetLogger() noexcept { return logger_; }
+  static inline std::shared_ptr<spdlog::logger>& GetServerLogger() noexcept { return server_logger_; }
+
+private:
+  static std::shared_ptr<spdlog::logger> CreateNamedLogger(std::string_view name, std::string_view log_file_path);
 
 private:
   static inline std::shared_ptr<spdlog::logger> logger_ = nullptr;
+  static inline std::shared_ptr<spdlog::logger> server_logger_ = nullptr;
 };
 
 }  // namespace app
@@ -58,3 +63,13 @@ private:
   ::app::Log::LogMessage(::app::Log::GetLogger(), spdlog::level::err, std::source_location::current(), __VA_ARGS__)
 #define CRITICAL(...) \
   ::app::Log::LogMessage(::app::Log::GetLogger(), spdlog::level::critical, std::source_location::current(), __VA_ARGS__)
+
+#define SERVER_TRACE(...) ::app::Log::GetServerLogger()->trace(__VA_ARGS__)
+#define SERVER_INFO(...) ::app::Log::GetServerLogger()->info(__VA_ARGS__)
+#define SERVER_WARN(...) ::app::Log::GetServerLogger()->warn(__VA_ARGS__)
+#define SERVER_ERROR(...)                                                                                    \
+  ::app::Log::LogMessage(::app::Log::GetServerLogger(), spdlog::level::err, std::source_location::current(), \
+                         __VA_ARGS__)
+#define SERVER_CRITICAL(...)                                                                                      \
+  ::app::Log::LogMessage(::app::Log::GetServerLogger(), spdlog::level::critical, std::source_location::current(), \
+                         __VA_ARGS__)

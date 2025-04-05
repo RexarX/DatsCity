@@ -6,6 +6,7 @@
 #include <execution>
 #include <expected>
 #include <filesystem>
+#include <fstream>
 #include <format>
 #include <mutex>
 #include <optional>

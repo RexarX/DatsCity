@@ -1,9 +1,6 @@
 #pragma once
 
 #include "GameObjects.h"
-#include "pch.h"
-
-#include <raylib.h>
 
 struct CoordsHash {
   inline size_t operator()(const app::Coords& coords) const {
@@ -20,7 +17,7 @@ public:
   constexpr Game(Game&&) noexcept = default;
   constexpr ~Game() noexcept = default;
 
-  void Update(const GameState& gameState);
+  void Update(const GameState& game_state);
 
   Game& operator=(const Game&) = delete;
   constexpr Game& operator=(Game&&) noexcept = default;

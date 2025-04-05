@@ -33,138 +33,131 @@ void Application::FetchInitialGameData() {
   bool success = true;
   
   if (const auto words_result = server_.FetchWords(); !words_result) {
-    ERROR("Failed to fetch initial words: {}", words_result.error().error);
+    ERROR("Failed to fetch initial words: {}!", words_result.error().error);
     success = false;
   } else {
-    INFO("Fetched {} words for the current turn", words_result->words.size());
+    INFO("Fetched {} words for the current turn.", words_result->words.size());
   }
  
   if (const auto towers_result = server_.FetchTowers(); !towers_result) {
-    ERROR("Failed to fetch initial towers: {}", towers_result.error().error);
+    ERROR("Failed to fetch initial towers: {}!", towers_result.error().error);
     success = false;
   } else {
-    INFO("Fetched tower data, current score: {}", towers_result->score);
+    INFO("Fetched tower data, current score: {}.", towers_result->score);
   }
   
   if (const auto rounds_result = server_.FetchRounds(); !rounds_result) {
-    ERROR("Failed to fetch initial rounds: {}", rounds_result.error().error);
+    ERROR("Failed to fetch initial rounds: {}!", rounds_result.error().error);
     success = false;
   } else {
-    INFO("Fetched {} rounds", rounds_result->rounds.size());
+    INFO("Fetched {} rounds.", rounds_result->rounds.size());
   }
 
   if (success) {
-    INFO("Initial game data fetched successfully");
+    INFO("Initial game data fetched successfully.");
   }
 }
 
 bool Application::CheckAndFetchWordData() {
-  ShuffleResponse result;
-  bool success = false;
+  std::expected<WordsResponse, Server::Error> words_result;
 
   {
     std::lock_guard<std::mutex> lock(server_mutex_);
-    const auto words_result = server_.FetchWords();
-    success = words_result.has_value();
+    words_result = server_.FetchWords();
   }
 
-  if (success) {
-    state_needs_swap_.store(true, std::memory_order_release);
-    INFO("Fetched words for the current turn");
+  if (!words_result) {
+    ERROR("Failed to fetch words: {}!", words_result.error().error);
+    return false;
   } else {
-    ERROR("Failed to fetch words");
+    state_needs_swap_.store(true, std::memory_order_release);
+    INFO("Fetched words for the current turn.");
+    return true;
   }
 
-  return success;
+  return false;
 }
 
 bool Application::CheckAndFetchTowerData() {
-  bool success = false;
+  std::expected<TowersResponse, Server::Error> towers_result;
 
   {
     std::lock_guard<std::mutex> lock(server_mutex_);
-    const auto towers_result = server_.FetchTowers();
-    success = towers_result.has_value();
+    towers_result = server_.FetchTowers();
   }
 
-  if (success) {
-    state_needs_swap_.store(true, std::memory_order_release);
-    INFO("Fetched tower data");
+  if (!towers_result) {
+    ERROR("Failed to fetch towers: {}!", towers_result.error().error);
   } else {
-    ERROR("Failed to fetch towers");
+    state_needs_swap_.store(true, std::memory_order_release);
+    INFO("Fetched tower data.");
+    
   }
 
-  return success;
+  return false;
 }
 
 bool Application::ShuffleCurrentWords() {
-  ShuffleResponse result;
-  bool success = false;
-  int shuffles_left = 0;
+  std::expected<ShuffleResponse, Server::Error> shuffle_result;
 
   {
     std::lock_guard<std::mutex> lock(server_mutex_);
-    if (const auto shuffle_result = server_.ShuffleWords(); shuffle_result) {
-      result = *shuffle_result;
-      shuffles_left = result.shuffle_left;
-      success = true;
-    }
+    shuffle_result = server_.ShuffleWords();
   }
 
-  if (success) {
-    state_needs_swap_.store(true, std::memory_order_release);
-    INFO("Shuffled words, shuffles left: {}", shuffles_left);
+  if (!shuffle_result) {
+    ERROR("Failed to shuffle words: {}!", shuffle_result.error().error);
+    return false;
   } else {
-    ERROR("Failed to shuffle words");
+    state_needs_swap_.store(true, std::memory_order_release);
+    INFO("Shuffled words, shuffles left: {}.", shuffle_result->shuffle_left);
+    return true;
   }
 
-  return success;
+  return false;
 }
 
 bool Application::FetchGameRounds() {
-  bool success = false;
+  std::expected<RoundsResponse, Server::Error> rounds_result;
 
   {
     std::lock_guard<std::mutex> lock(server_mutex_);
-    const auto rounds_result = server_.FetchRounds();
-    success = rounds_result.has_value();
+    rounds_result = server_.FetchRounds();
   }
 
-  if (success) {
-    state_needs_swap_.store(true, std::memory_order_release);
-    INFO("Fetched rounds");
+  if (!rounds_result) {
+    ERROR("Failed to fetch rounds: {}!", rounds_result.error().error);
+    return false;
   } else {
-    ERROR("Failed to fetch rounds");
+    state_needs_swap_.store(true, std::memory_order_release);
+    INFO("Fetched rounds.");
+    return true;
   }
 
-  return success;
+  return false;
 }
 
 bool Application::BuildWordTower(const BuildRequest& request) {
-  ShuffleResponse result;
-  bool success = false;
-  int shuffles_left = 0;
+  std::expected<ShuffleResponse, Server::Error> build_result;
 
   {
     std::lock_guard<std::mutex> lock(server_mutex_);
-    if (auto build_result = server_.BuildTower(request); build_result) {
-      result = std::move(*build_result);
-      shuffles_left = result.shuffle_left;
-      success = true;
-    }
+    build_result = server_.BuildTower(request);
   }
 
-  if (success) {
-    state_needs_swap_.store(true, std::memory_order_release);
-    INFO("Tower built successfully, shuffles left: {}", shuffles_left);
-
-    // Refresh tower data after building
-    CheckAndFetchTowerData();
+  if (!build_result) {
+    ERROR("Failed to build tower!");
+    
+    return false;
   } else {
-    ERROR("Failed to build tower");
+    state_needs_swap_.store(true, std::memory_order_release);
+    INFO("Tower built successfully, shuffles left: {}.", build_result->shuffle_left);
+    CheckAndFetchTowerData();  // Refresh tower data after building
+    return true;
   }
 
-  return success;
+  return false;
+  ;
 }
 
 void Application::UpdateLoop() {
@@ -257,7 +250,7 @@ void Application::RenderLoop() {
       ++frame_counter_;
     }
 
-    // Small sleep to prevent render thread from consuming 100% CPU when frame limited
+    // Sleep if needed
     /*if (framerate_limit_ > 0) {
       float time_to_next_frame = framerate_limit_sec_ - (static_cast<float>(timer.GetElapsedSec()) - last_render_time_);
       if (time_to_next_frame > 0) {

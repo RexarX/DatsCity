@@ -242,16 +242,16 @@ void Server::PrintGameState() {
   INFO(R"(
 Game State Summary
 -----------------------------------------
-Map: [%d, %d, %d] | Turn: %d | Next turn: %ds
-Words: %zu available | Shuffles left: %d
-Round: %s (%s) | Ends at: %s
+Map: [{}, {}, {}] | Turn: {} | Next turn: {}s
+Words: {} available | Shuffles left: {}
+Round: {} ({}) | Ends at: {}
 -----------------------------------------
-Towers completed: %zu | Total score: %.2f
-Current tower: %s | Words placed: %d | Score: %.2f
+Towers completed: {} | Total score: {:.5f}
+Current tower: {} | Words placed: {} | Score: {:.5f}
 -----------------------------------------)",
        game_state_.words_data.map_size.x, game_state_.words_data.map_size.y, game_state_.words_data.map_size.z,
        game_state_.words_data.turn, game_state_.words_data.next_turn_sec, game_state_.words_data.words.size(),
-       game_state_.words_data.shuffle_left, round_name, round_status, game_state_.words_data.round_ends_at.c_str(),
+       game_state_.words_data.shuffle_left, round_name, round_status, game_state_.words_data.round_ends_at,
        game_state_.towers_data.done_towers.size(), game_state_.towers_data.score,
        game_state_.towers_data.tower.has_value() ? "Active" : "None", words_in_tower, tower_score);
 }
@@ -307,19 +307,33 @@ void Server::ParseNoActiveGameError(const std::string& error_message) {
       R"(next rounds: \[([\w-]+) (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z) -- (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)\])");
   std::smatch matches;
 
-  if (std::regex_search(error_message, matches, round_regex) && matches.size() >= 3) {
+  if (std::regex_search(error_message, matches, round_regex) && matches.size() >= 4) {
     const std::string round_name = matches[1].str();
-    std::string start_time_str = matches[2].str();
+    const std::string start_time_str = matches[2].str();
+    const std::string end_time_str = matches[3].str();
 
-    // Convert ISO 8601 string to time_point
-    std::tm tm = {};
-    std::istringstream ss(start_time_str);
-    ss >> std::get_time(&tm, "%Y-%m-%dT%H:%M:%SZ");
+    // Convert ISO 8601 strings to time_points
+    std::tm start_tm = {};
+    std::istringstream start_ss(start_time_str);
+    start_ss >> std::get_time(&start_tm, "%Y-%m-%dT%H:%M:%SZ");
 
-    const auto start_time = std::chrono::system_clock::from_time_t(std::mktime(&tm));
+    std::tm end_tm = {};
+    std::istringstream end_ss(end_time_str);
+    end_ss >> std::get_time(&end_tm, "%Y-%m-%dT%H:%M:%SZ");
+
+    const auto start_time = std::chrono::system_clock::from_time_t(std::mktime(&start_tm));
+    const auto end_time = std::chrono::system_clock::from_time_t(std::mktime(&end_tm));
     const auto now = std::chrono::system_clock::now();
 
-    if (start_time > now) {
+    // Check if the game should be ongoing (started in past but ends in future)
+    if (start_time <= now && now < end_time) {
+      // This is the case you identified - game has started but we're not seeing it
+      // Try connecting immediately and more frequently since the game should be in progress
+      next_game_check_time_ = now;  // Check immediately
+      INFO("Game '{}' should be in progress! Start time was {} and end time is {}. Attempting to connect immediately.",
+           round_name, start_time_str, end_time_str);
+    } else if (start_time > now) {
+      // Future game case (handled correctly in the original code)
       const auto time_until_game = std::chrono::duration_cast<std::chrono::seconds>(start_time - now).count();
 
       // Set next check time to 10 seconds before the game starts
@@ -332,14 +346,16 @@ void Server::ParseNoActiveGameError(const std::string& error_message) {
 
       INFO("No active game. Next game '{}' starts in {} seconds (at {})", round_name, time_until_game, start_time_str);
     } else {
-      // If start time is in the past, check again in 30 seconds
-      next_game_check_time_ = now + std::chrono::seconds(30);
-      INFO("Next game time appears to be in the past. Will check again in 30 seconds.");
+      // Both start and end times are in the past - game is over
+      // Check for the next game in a minute
+      next_game_check_time_ = now + std::chrono::minutes(1);
+      INFO("Game '{}' appears to have ended (ran from {} to {}). Will check for new games in 60 seconds.", round_name,
+           start_time_str, end_time_str);
     }
   } else {
     // If we can't parse the time, check again in 60 seconds
     next_game_check_time_ = std::chrono::system_clock::now() + std::chrono::seconds(60);
-    INFO("Could not parse next game time. Will check again in 60 seconds.");
+    INFO("Could not parse next game time. Will check again in 60 seconds. Error message: {}.", error_message);
   }
 }
 

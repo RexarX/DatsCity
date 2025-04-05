@@ -253,12 +253,20 @@ void Server::PrintGameState() {
   std::string_view round_ends_at = game_state_.words_data.round_ends_at.c_str();
 
   bool found_active_round = false;
+  static std::string last_active_round_name;
+  bool new_round_started = false;
 
   for (const auto& round : game_state_.rounds_data) {
     // Check if this round is active
     if (round.status == "active" || (round.status != "finished" && !found_active_round)) {
       round_status = round.status.c_str();
       round_name = round.name.c_str();
+
+      // Check if this is a new round
+      if (last_active_round_name != round.name) {
+        last_active_round_name = round.name;
+        new_round_started = true;
+      }
 
       // If we found a truly active round, break immediately
       if (round.status == "active") {
@@ -270,14 +278,24 @@ void Server::PrintGameState() {
 
   // If there's no active round but we have rounds data, show the most recent round
   if (!found_active_round && !game_state_.rounds_data.empty()) {
-    // Sort rounds by end time (descending) to find the most recent
-    auto sorted_rounds = game_state_.rounds_data;
-    std::sort(sorted_rounds.begin(), sorted_rounds.end(),
-              [](const Round& a, const Round& b) { return a.end_at > b.end_at; });
+    // Find the most recent round without sorting (avoid allocation)
+    const Round* most_recent = &game_state_.rounds_data[0];
+    for (size_t i = 1; i < game_state_.rounds_data.size(); ++i) {
+      if (game_state_.rounds_data[i].end_at > most_recent->end_at) {
+        most_recent = &game_state_.rounds_data[i];
+      }
+    }
 
     // Use the most recent round for display
-    round_status = sorted_rounds[0].status.c_str();
-    round_name = sorted_rounds[0].name.c_str();
+    round_status = most_recent->status.c_str();
+    round_name = most_recent->name.c_str();
+
+    // Check if this is a new round
+    if (last_active_round_name != most_recent->name) {
+      last_active_round_name = most_recent->name;
+      new_round_started = true;
+    }
+
     SERVER_INFO("No active round found, showing most recent round");
   }
 
@@ -297,18 +315,23 @@ Current tower: {} | Words placed: {} | Score: {:.5f}
               game_state_.towers_data.done_towers.size(), game_state_.towers_data.score,
               game_state_.towers_data.tower.has_value() ? "Active" : "None", words_in_tower, tower_score);
 
-  // Display extra information about all rounds if there are multiple
-  if (game_state_.rounds_data.size() > 1) {
-    SERVER_INFO("All Rounds:");
-    SERVER_INFO("+--------------------+------------+------------------------+------------------------+");
-    SERVER_INFO("| Round Name         | Status     | Start Time             | End Time               |");
-    SERVER_INFO("+--------------------+------------+------------------------+------------------------+");
+  // Only print rounds table on first update or when a new round starts
+  static bool first_update = true;
+  if ((first_update || new_round_started) && game_state_.rounds_data.size() > 1) {
+    first_update = false;
+
+    std::string table = "All Rounds:\n";
+    table += "+--------------------+------------+------------------------+------------------------+\n";
+    table += "| Round Name         | Status     | Start Time             | End Time               |\n";
+    table += "+--------------------+------------+------------------------+------------------------+\n";
 
     for (const auto& round : game_state_.rounds_data) {
-      SERVER_INFO("| {:<18} | {:<10} | {:<22} | {:<22} |", round.name, round.status, round.start_at, round.end_at);
+      table += std::format("| {:<18} | {:<10} | {:<22} | {:<22} |\n", round.name, round.status, round.start_at,
+                           round.end_at);
     }
 
-    SERVER_INFO("+--------------------+------------+------------------------+------------------------+");
+    table += "+--------------------+------------+------------------------+------------------------+";
+    SERVER_INFO("{}", table);
   }
 }
 
@@ -317,7 +340,7 @@ std::expected<std::string, Server::Error> Server::SendGetRequest(std::string_vie
     return std::unexpected(Error{.error = "Server is not connected"});
   }
 
-  SERVER_INFO("Sending GET request to {}", endpoint);
+  SERVER_INFO("Sending GET request to {}.", endpoint);
 
   cpr::Session req;
   req.SetUrl(FormatEndpointUrl(endpoint));

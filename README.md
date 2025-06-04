@@ -21,7 +21,7 @@
 
 ## About The Project
 
-Solution for gamathon by DatsTeam.
+Solution for gamathon by DatsTeam. Unfortunately game solving algorithm is not finished. 
 
 ## Getting Started
 
@@ -46,6 +46,7 @@ Solution for gamathon by DatsTeam.
 ```sh
 git clone https://github.com/RexarX/DatsCity.git
 cd DatsCity
+git submodule update --init --recursive
 ```
 
 2. Install dependencies

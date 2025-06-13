@@ -65,6 +65,7 @@ Distributed under the MIT license. See `LICENSE` for more information.
 ## Contact
 
 RexarX - <who727cares@gmail.com>
+
 PlatonFPS - <platonfps@yandex.ru>
 
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
+[↑ Back to Top](#readme-top)
